@@ -1,4 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom'; // <-- Add this at the top
+import { auth } from "../firebaseConfig";
+import { signInWithEmailAndPassword } from "firebase/auth";
+
 import {
   Box,
   Container,
@@ -24,12 +28,28 @@ import CalculateIcon from '@mui/icons-material/Calculate';
 import Papa from 'papaparse';
 
 const EGFRCalculator = () => {
-  const [userType, setUserType] = useState('patient');
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const initialUserType = queryParams.get('type') || 'clinician';
+  const [userType, setUserType] = useState(initialUserType);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [calculationResult, setCalculationResult] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [patients, setPatients] = useState([]); // Stores multiple patient data
+  const [currentPatientIndex, setCurrentPatientIndex] = useState(0); // Controls navigation
+
+  
+  useEffect(() => {
+    setUserType(initialUserType);
+  }, [initialUserType]);
+  
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { control, handleSubmit, reset, formState: { errors } } = useForm({
+  const { control, handleSubmit, reset, setValue, formState: { errors } } = useForm({
     defaultValues: {
       age: '',
       gender: '',
@@ -44,6 +64,16 @@ const EGFRCalculator = () => {
     setCalculationResult(null);
     setError('');
   };
+
+  const handleLogin = async () => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      setIsLoggedIn(true);
+    } catch (error) {
+      setLoginError("Invalid credentials. Please try again.");
+    }
+  };
+  
 
   const calculateEGFR = (creatinine, age, gender, ethnicity) => {
     // MDRD equation implementation
@@ -94,22 +124,66 @@ const EGFRCalculator = () => {
     setLoading(false);
   };
 
-  const handleFileUpload = (event) => {
+    const handleFileUpload = (event) => {
     const file = event.target.files[0];
-    if (file) {
-      Papa.parse(file, {
+
+    if (!file) return;
+
+    Papa.parse(file, {
         complete: (results) => {
-          // Process CSV data
-          console.log(results.data);
-          // Implement bulk processing logic here
+            if (results.errors.length) {
+                setError(`Error processing CSV file: ${results.errors[0].message}`);
+                return;
+            }
+
+            const patients = results.data.map((row, index) => {
+                // Normalize column names (force lowercase and trim spaces)
+                const normalizedRow = {};
+                Object.keys(row).forEach(key => {
+                    normalizedRow[key.trim().toLowerCase()] = row[key].trim();
+                });
+
+                // Check if any required fields are missing
+                if (!normalizedRow.age || !normalizedRow.gender || !normalizedRow.ethnicity || !normalizedRow.creatinine) {
+                    setError(`Missing required fields in row ${index + 1}. Please check your file.`);
+                    return null;
+                }
+
+                // Validate values
+                if (isNaN(normalizedRow.age) || isNaN(normalizedRow.creatinine)) {
+                    setError(`Invalid number detected in row ${index + 1}. Ensure age and creatinine are numeric.`);
+                    return null;
+                }
+
+                return normalizedRow;
+            }).filter(patient => patient !== null);  // Remove invalid entries
+
+            if (patients.length === 0) {
+                setError('CSV file is empty or all rows contain errors. Please check your file.');
+                return;
+            }
+
+            setPatients(patients);
+            setCurrentPatientIndex(0);
+            setError(''); // Clear any previous errors
         },
         header: true,
-        error: (error) => {
-          setError('Error processing CSV file: ' + error.message);
-        }
-      });
+        skipEmptyLines: true,
+    });
+};
+
+  
+  useEffect(() => {
+    if (patients.length > 0) {
+      const selectedPatient = patients[currentPatientIndex];
+      setValue("age", selectedPatient.age);
+      setValue("gender", selectedPatient.gender.toLowerCase());
+      setValue("ethnicity", selectedPatient.ethnicity.toLowerCase());
+      setValue("creatinine", selectedPatient.creatinine);
     }
-  };
+  }, [currentPatientIndex, patients, setValue]);
+  
+  
 
   const getRecommendations = (stage) => {
     const recommendations = {
@@ -206,135 +280,161 @@ const EGFRCalculator = () => {
           />
         </Tabs>
 
-        {error && (
-          <Alert 
-            severity="error" 
-            sx={{ 
-              mb: 3,
-              borderRadius: 2,
-            }}
-          >
-            {error}
-          </Alert>
+
+        {userType === "clinician" && !isLoggedIn ? (
+          <Box sx={{ textAlign: "center", mt: 3 }}>
+            <Typography variant="h6">Clinician Login</Typography>
+            <TextField
+              label="Email"
+              fullWidth
+              margin="normal"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <TextField
+              label="Password"
+              type="password"
+              fullWidth
+              margin="normal"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <Button
+              variant="contained"
+              color="primary"
+              fullWidth
+              onClick={handleLogin}
+              sx={{ mt: 2 }}
+            >
+              Login
+            </Button>
+            {loginError && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {loginError}
+              </Alert>
+            )}
+          </Box>
+        ) : (
+          <>
+            {error && (
+              <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+                {error}
+              </Alert>
+            )}
+            <form onSubmit={handleSubmit(onSubmit)}>
+              <Grid container spacing={3}>
+              {patients.length > 1 && (
+          <Grid item xs={12} sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
+            <Button 
+              variant="contained" 
+              color="secondary" 
+              disabled={currentPatientIndex === 0} 
+              onClick={() => setCurrentPatientIndex(prev => prev - 1)}
+            >
+              ← Previous Patient
+            </Button>
+
+            <Typography variant="body1" sx={{ display: 'flex', alignItems: 'center' }}>
+              Patient {currentPatientIndex + 1} of {patients.length}
+            </Typography>
+
+            <Button 
+              variant="contained" 
+              color="secondary" 
+              disabled={currentPatientIndex === patients.length - 1} 
+              onClick={() => setCurrentPatientIndex(prev => prev + 1)}
+            >
+              Next Patient →
+            </Button>
+          </Grid>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <Controller
-                name="age"
-                control={control}
-                rules={{ required: 'Age is required', min: 18, max: 120 }}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Age"
-                    type="number"
-                    fullWidth
-                    error={!!errors.age}
-                    helperText={errors.age?.message}
-                  />
-                )}
-              />
-            </Grid>
+        <Grid item xs={12} md={6}>
+          <Controller
+            name="age"
+            control={control}
+            rules={{ required: 'Age is required', min: 18, max: 120 }}
+            render={({ field }) => (
+              <TextField {...field} label="Age" type="number" fullWidth error={!!errors.age} helperText={errors.age?.message} />
+            )}
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Controller
+            name="gender"
+            control={control}
+            rules={{ required: 'Gender is required' }}
+            render={({ field }) => (
+              <FormControl fullWidth error={!!errors.gender}>
+                <InputLabel>Gender</InputLabel>
+                <Select {...field} label="Gender">
+                  <MenuItem value="male">Male</MenuItem>
+                  <MenuItem value="female">Female</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Controller
+            name="ethnicity"
+            control={control}
+            rules={{ required: 'Ethnicity is required' }}
+            render={({ field }) => (
+              <FormControl fullWidth error={!!errors.ethnicity}>
+                <InputLabel>Ethnicity</InputLabel>
+                <Select {...field} label="Ethnicity">
+                  <MenuItem value="african">African</MenuItem>
+                  <MenuItem value="non-african">Non-African</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Controller
+            name="creatinine"
+            control={control}
+            rules={{ 
+              required: 'Creatinine level is required',
+              min: { value: 0.1, message: 'Invalid creatinine level' },
+              max: { value: 20, message: 'Invalid creatinine level' }
+            }}
+            render={({ field }) => (
+              <TextField {...field} label="Creatinine Level (mg/dL)" type="number" fullWidth error={!!errors.creatinine} helperText={errors.creatinine?.message} />
+            )}
+          />
+        </Grid>
+        <Grid item xs={12}>
+        <Button
+          component="label"
+          variant="outlined"
+          startIcon={<CloudUploadIcon />}
+          fullWidth
+          sx={{ 
+            height: 56,
+            borderStyle: 'dashed',
+          }}
+        >
+          Upload Patient Data (CSV)
+          <input
+            type="file"
+            hidden
+            accept=".csv"
+            onChange={handleFileUpload} // Make sure this function is handling the upload
+          />
+        </Button>
+      </Grid>
 
-            <Grid item xs={12} md={6}>
-              <Controller
-                name="gender"
-                control={control}
-                rules={{ required: 'Gender is required' }}
-                render={({ field }) => (
-                  <FormControl fullWidth error={!!errors.gender}>
-                    <InputLabel>Gender</InputLabel>
-                    <Select {...field} label="Gender">
-                      <MenuItem value="male">Male</MenuItem>
-                      <MenuItem value="female">Female</MenuItem>
-                    </Select>
-                  </FormControl>
-                )}
-              />
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <Controller
-                name="ethnicity"
-                control={control}
-                rules={{ required: 'Ethnicity is required' }}
-                render={({ field }) => (
-                  <FormControl fullWidth error={!!errors.ethnicity}>
-                    <InputLabel>Ethnicity</InputLabel>
-                    <Select {...field} label="Ethnicity">
-                      <MenuItem value="african">African</MenuItem>
-                      <MenuItem value="non-african">Non-African</MenuItem>
-                    </Select>
-                  </FormControl>
-                )}
-              />
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <Controller
-                name="creatinine"
-                control={control}
-                rules={{ 
-                  required: 'Creatinine level is required',
-                  min: { value: 0.1, message: 'Invalid creatinine level' },
-                  max: { value: 20, message: 'Invalid creatinine level' }
-                }}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Creatinine Level (mg/dL)"
-                    type="number"
-                    fullWidth
-                    error={!!errors.creatinine}
-                    helperText={errors.creatinine?.message}
-                  />
-                )}
-              />
-            </Grid>
-
-            {userType === 'clinician' && (
               <Grid item xs={12}>
-                <Button
-                  component="label"
-                  variant="outlined"
-                  startIcon={<CloudUploadIcon />}
-                  fullWidth
-                  sx={{ 
-                    height: 56,
-                    borderStyle: 'dashed',
-                  }}
-                >
-                  Upload Patient Data (CSV)
-                  <input
-                    type="file"
-                    hidden
-                    accept=".csv"
-                    onChange={handleFileUpload}
-                  />
+                <Button type="submit" variant="contained" color="primary" fullWidth disabled={loading} startIcon={loading ? <CircularProgress size={20} /> : <CalculateIcon />} sx={{ height: 56, fontSize: '1.1rem' }}>
+                  {loading ? 'Calculating...' : 'Calculate eGFR'}
                 </Button>
               </Grid>
-            )}
-
-            <Grid item xs={12}>
-              <Button
-                type="submit"
-                variant="contained"
-                color="primary"
-                fullWidth
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={20} /> : <CalculateIcon />}
-                sx={{ 
-                  height: 56,
-                  fontSize: '1.1rem',
-                }}
-              >
-                {loading ? 'Calculating...' : 'Calculate eGFR'}
-              </Button>
             </Grid>
-          </Grid>
-        </form>
+          </form>
+        </>
+      )}
       </Paper>
 
       {calculationResult && (

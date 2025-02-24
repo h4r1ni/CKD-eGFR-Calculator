@@ -1,4 +1,5 @@
 import { ThemeProvider, createTheme, CssBaseline, Box } from '@mui/material';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import EGFRCalculator from './components/EGFRCalculator';
 
 const theme = createTheme({
@@ -67,21 +68,29 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box
-        sx={{
-          minHeight: '100vh',
-          width: '100vw',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'linear-gradient(180deg, rgba(25,118,210,0.05) 0%, rgba(25,118,210,0) 100%)',
-          p: { xs: 2, md: 4 },
-          boxSizing: 'border-box',
-          overflow: 'auto',
-        }}
-      >
-        <EGFRCalculator />
-      </Box>
+      <Router>
+        <Box
+          sx={{
+            minHeight: '100vh',
+            width: '100vw',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'linear-gradient(180deg, rgba(25,118,210,0.05) 0%, rgba(25,118,210,0) 100%)',
+            p: { xs: 2, md: 4 },
+            boxSizing: 'border-box',
+            overflow: 'auto',
+          }}
+        >
+          <Routes>
+            {/* This makes sure the first page is the Calculator page */}
+            <Route path="/" element={<EGFRCalculator />} />
+            <Route path="/calculator" element={<EGFRCalculator />} />
+            {/* Any unknown routes will go to the calculator */}
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </Box>
+      </Router>
     </ThemeProvider>
   );
 }
