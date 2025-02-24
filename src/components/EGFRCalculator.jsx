@@ -405,26 +405,28 @@ const EGFRCalculator = () => {
             )}
           />
         </Grid>
-        <Grid item xs={12}>
-        <Button
-          component="label"
-          variant="outlined"
-          startIcon={<CloudUploadIcon />}
-          fullWidth
-          sx={{ 
-            height: 56,
-            borderStyle: 'dashed',
-          }}
-        >
-          Upload Patient Data (CSV)
-          <input
-            type="file"
-            hidden
-            accept=".csv"
-            onChange={handleFileUpload} // Make sure this function is handling the upload
-          />
-        </Button>
-      </Grid>
+        {userType === 'clinician' && (
+          <Grid item xs={12}>
+            <Button
+              component="label"
+              variant="outlined"
+              startIcon={<CloudUploadIcon />}
+              fullWidth
+              sx={{ 
+                height: 56,
+                borderStyle: 'dashed',
+              }}
+            >
+              Upload Patient Data (CSV)
+              <input
+                type="file"
+                hidden
+                accept=".csv"
+                onChange={handleFileUpload}
+              />
+            </Button>
+          </Grid>
+        )}
 
               <Grid item xs={12}>
                 <Button type="submit" variant="contained" color="primary" fullWidth disabled={loading} startIcon={loading ? <CircularProgress size={20} /> : <CalculateIcon />} sx={{ height: 56, fontSize: '1.1rem' }}>
