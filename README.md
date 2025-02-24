@@ -4,6 +4,6 @@ This project provides a setup to calculate CKD (Chronic Kidney Disease) using Re
 
 ## Getting Started
 
-1. Install dependencies: `npm install`
+1. Install dependencies: `npm install` and `npm install firebase`
 2. Start development server: `npm run dev`
 3. Open `http://localhost:5173` in your browser
