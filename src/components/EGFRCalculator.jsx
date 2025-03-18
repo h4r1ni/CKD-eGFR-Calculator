@@ -47,6 +47,7 @@ const EGFRCalculator = () => {
   const [patients, setPatients] = useState([]); // Stores multiple patient data
   const [currentPatientIndex, setCurrentPatientIndex] = useState(0); // Controls navigation
   const [currentNhsNumber, setCurrentNhsNumber] = useState("");
+  const [role, setRole] = useState(null);
 
 
   
@@ -84,6 +85,7 @@ const EGFRCalculator = () => {
         const hcpEmail = `${hcpId}@hcp.com`;
         await signInWithEmailAndPassword(auth, hcpEmail, password);
         setIsLoggedIn(true);
+        setRole("clinician");
         console.log("Successfully logged in as HCP:", hcpId);
         // Return the clinician to the calculator view:
         setIsRegistering(false);
@@ -176,6 +178,7 @@ const handlePatientLogin = async () => {
 
       await signInWithEmailAndPassword(auth, nhsEmail, password);
       setIsLoggedIn(true);
+      setRole("patient");
       setCurrentNhsNumber(nhsNumber);
 
       // These lines will send the user back to the calculator view
@@ -406,10 +409,16 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
         <Tabs
           value={userType}
           onChange={(e, newValue) => {
-            setUserType(newValue);
+            // If role === 'patient' and user clicks "Clinician", do nothing
+            if (role === 'patient' && newValue === 'clinician') {
+              alert("You are logged in as a patient and cannot access the Clinician tab.");
+              return;
+            }
             reset();
             setCalculationResult(null);
             setError('');
+            setUserType(newValue);
+    
           }}
           centered
           sx={{
@@ -420,17 +429,19 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
             },
           }}
         >
-          <Tab 
-            label="Patient" 
+          <Tab
+            label="Patient"
             value="patient"
             sx={{ fontSize: '1rem', fontWeight: 500 }}
           />
-          <Tab 
-            label="Clinician" 
-            value="clinician"
-            sx={{ fontSize: '1rem', fontWeight: 500 }}
-          />
+            <Tab
+              label="Clinician"
+              value="clinician"
+              disabled={role === 'patient'}
+              sx={{ fontSize: '1rem', fontWeight: 500 }}
+            />
         </Tabs>
+
 
 
 
@@ -609,7 +620,6 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
               setHcpId("");
               setPassword("");
               setCalculationResult(null);
-
             }}
           >
             Logout
@@ -868,6 +878,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                             setPassword("");
                             setRegisterSource(null);
                             setCalculationResult(null);
+                            setRole(null);
                           }}
                         >
                           Logout
