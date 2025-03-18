@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom'; // <-- Add this at the top
-import { auth } from "../firebaseConfig";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { useLocation } from 'react-router-dom';
+import { db, auth } from "../firebaseConfig";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
+import { setDoc, doc } from "firebase/firestore";
+
 
 import {
   Box,
@@ -30,15 +32,22 @@ import Papa from 'papaparse';
 const EGFRCalculator = () => {
   const location = useLocation();
   const queryParams = new URLSearchParams(location.search);
-  const initialUserType = queryParams.get('type') || 'clinician';
+  const [isRegistering, setIsRegistering] = useState(false); // Tracks if user is registering
+  const [registerSource, setRegisterSource] = useState(null); // Tracks whether user clicked "Register" or "Remember Me"
+  const [savedPatientData, setSavedPatientData] = useState(null); // Stores last entered values if from "Remember Me"
+  const initialUserType = queryParams.get('type') || 'patient';
   const [userType, setUserType] = useState(initialUserType);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [calculationResult, setCalculationResult] = useState(null);
-  const [email, setEmail] = useState("");
+  const [creatinineUnit, setCreatinineUnit] = useState('mg/dL'); // Default to mg/dL
+  const [nhsNumber, setNhsNumber] = useState("");
   const [password, setPassword] = useState("");
+  const [hcpId, setHcpId] = useState("");
   const [loginError, setLoginError] = useState("");
   const [patients, setPatients] = useState([]); // Stores multiple patient data
   const [currentPatientIndex, setCurrentPatientIndex] = useState(0); // Controls navigation
+  const [currentNhsNumber, setCurrentNhsNumber] = useState("");
+
 
   
   useEffect(() => {
@@ -49,48 +58,167 @@ const EGFRCalculator = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { control, handleSubmit, reset, setValue, formState: { errors } } = useForm({
+  const { control, handleSubmit, reset, setValue, getValues, formState: { errors } } = useForm({
     defaultValues: {
       age: '',
       gender: '',
       ethnicity: '',
       creatinine: '',
+      unit: 'mg/dL',  // Default unit
     },
   });
-
-  const handleUserTypeChange = (event, newValue) => {
-    setUserType(newValue);
-    reset();
-    setCalculationResult(null);
-    setError('');
-  };
-
-  const handleLogin = async () => {
+  
+  
+  const handleClinicianLogin = async () => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      setIsLoggedIn(true);
+        console.log("Clinician Login button clicked!");
+        if (!hcpId) {
+            alert("HCP ID is required!");
+            return;
+        }
+        if (!password || password.length < 6) {
+            alert("Password must be at least 6 characters!");
+            return;
+        }
+        // Convert HCP ID to a dummy email format
+        const hcpEmail = `${hcpId}@hcp.com`;
+        await signInWithEmailAndPassword(auth, hcpEmail, password);
+        setIsLoggedIn(true);
+        console.log("Successfully logged in as HCP:", hcpId);
+        // Return the clinician to the calculator view:
+        setIsRegistering(false);
+        setRegisterSource(null);
+        alert("Clinician Login successful!");
     } catch (error) {
-      setLoginError("Invalid credentials. Please try again.");
+        console.error("Clinician Login error:", error.message);
+        setLoginError("Invalid credentials. Please try again.");
     }
   };
   
 
-  const calculateEGFR = (creatinine, age, gender, ethnicity) => {
-    // MDRD equation implementation
-    let egfr = 175 * Math.pow(creatinine, -1.154) * Math.pow(age, -0.203);
-    
-    // Apply gender factor
-    if (gender === 'female') {
-      egfr *= 0.742;
-    }
-    
-    // Apply ethnicity factor
-    if (ethnicity === 'african') {
-      egfr *= 1.212;
-    }
-    
-    return egfr.toFixed(2);
-  };
+  
+const handlePatientRegister = async () => {
+  try {
+      console.log("Register button clicked!");
+      console.log("Register Source:", registerSource);
+      console.log("Saved Patient Data:", savedPatientData);
+
+      if (!nhsNumber || !/^\d{10}$/.test(nhsNumber)) {
+          alert("NHS Number must be exactly 10 digits and contain only numbers!");
+          return;
+      }
+
+      if (!password || password.length < 6) {
+          alert("Password must be at least 6 characters!");
+          return;
+      }
+
+      // Convert NHS Number into a valid Firebase email format
+      const nhsEmail = `${nhsNumber}@nhsuser.com`;
+
+      // 1️Create User in Firebase Authentication
+      const userCredential = await createUserWithEmailAndPassword(auth, nhsEmail, password);
+      const userId = userCredential.user.uid;
+
+      // 2️Store the actual NHS number and patient data in Firestore
+      const patientData = {
+          nhsNumber,  //  Save real NHS number in Firestore
+          age: registerSource === "rememberMe" && savedPatientData ? savedPatientData.age : null,
+          gender: registerSource === "rememberMe" && savedPatientData ? savedPatientData.gender : null,
+          ethnicity: registerSource === "rememberMe" && savedPatientData ? savedPatientData.ethnicity : null,
+          creatinine: registerSource === "rememberMe" && savedPatientData ? savedPatientData.creatinine : null,
+          unit: registerSource === "rememberMe" && savedPatientData ? savedPatientData.unit : null,
+          timestamp: new Date(),
+      };
+
+      console.log("Data being saved to Firestore:", patientData);
+
+      // Save Patient Data in Firestore using NHS Number
+
+      await setDoc(doc(db, "patients", nhsNumber), patientData);
+
+      // Set the user as logged in so that the Logout button is shown
+      setIsLoggedIn(true);
+      setCurrentNhsNumber(nhsNumber);
+
+
+      // Reset state to show the calculator view (with logout) instead of registration
+      setIsRegistering(false);
+      setRegisterSource(null);
+      setSavedPatientData(null);
+      setNhsNumber("");
+      setPassword("");
+
+      alert("Registration successful!");
+
+  } catch (error) {
+      console.error("Error registering:", error.message);
+      alert("Error registering: " + error.message);
+  }
+};
+
+
+
+const handlePatientLogin = async () => {
+  try {
+      console.log("Login button clicked!");
+
+      if (!nhsNumber || !/^\d{10}$/.test(nhsNumber)) {
+          alert("NHS Number must be exactly 10 digits and contain only numbers!");
+          return;
+      }
+      if (!password || password.length < 6) {
+          alert("Password must be at least 6 characters!");
+          return;
+      }
+
+      const nhsEmail = `${nhsNumber}@nhsuser.com`;
+
+      await signInWithEmailAndPassword(auth, nhsEmail, password);
+      setIsLoggedIn(true);
+      setCurrentNhsNumber(nhsNumber);
+
+      // These lines will send the user back to the calculator view
+      setIsRegistering(false);
+      setRegisterSource(null);
+
+      console.log("Successfully logged in as:", nhsNumber);
+      alert("🎉 Login successful!");
+  } catch (error) {
+      console.error("Login error:", error.message);
+      setLoginError("Invalid credentials. Please try again.");
+  }
+};
+
+
+  
+
+function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
+  let creatinineMgDl = parseFloat(creatinine);
+  if (unit === "micromol/L") {
+    creatinineMgDl = creatinineMgDl / 88.4;
+  }
+
+
+  if (isNaN(creatinineMgDl) || creatinineMgDl <= 0) {
+    return "Invalid";
+  }
+
+  let egfr = 186
+    * Math.pow(creatinineMgDl, -1.154)
+    * Math.pow(age, -0.203);
+
+  if (gender.toLowerCase() === "female") {
+    egfr *= 0.742;
+  }
+
+  if (ethnicity.toLowerCase() === "black") {
+    egfr *= 1.210;
+  }
+
+  return egfr.toFixed(2);
+}
+
 
   const getCKDStage = (egfr) => {
     if (egfr >= 90) return '1';
@@ -100,31 +228,38 @@ const EGFRCalculator = () => {
     return '5';
   };
 
+  const [showRememberMeButton, setShowRememberMeButton] = useState(false);
   const onSubmit = (data) => {
     setLoading(true);
     try {
-      const egfr = calculateEGFR(
-        parseFloat(data.creatinine),
-        parseFloat(data.age),
-        data.gender,
-        data.ethnicity
-      );
-      
-      const stage = getCKDStage(egfr);
-      
-      setCalculationResult({
-        egfr,
-        stage,
-        recommendations: getRecommendations(stage),
-      });
-      
-    } catch (err) {
-      setError('Error calculating eGFR. Please check your inputs.');
-    }
-    setLoading(false);
-  };
+        const egfr = calculateEGFR(
+            parseFloat(data.creatinine),
+            parseFloat(data.age),
+            data.gender,
+            data.ethnicity,
+            creatinineUnit
+        );
 
-    const handleFileUpload = (event) => {
+        const stage = getCKDStage(egfr);
+
+        setCalculationResult({
+            egfr,
+            stage,
+            recommendations: getRecommendations(stage),
+        });
+
+        setShowRememberMeButton(true);
+
+        console.log("Unit Passed:", creatinineUnit);
+    } catch (err) {
+        setError('Error calculating eGFR. Please check your inputs.');
+    }
+    console.log("Selected Unit Before Calculation:", creatinineUnit);
+    setLoading(false);
+};
+
+
+  const handleFileUpload = (event) => {
     const file = event.target.files[0];
 
     if (!file) return;
@@ -140,23 +275,41 @@ const EGFRCalculator = () => {
                 // Normalize column names (force lowercase and trim spaces)
                 const normalizedRow = {};
                 Object.keys(row).forEach(key => {
-                    normalizedRow[key.trim().toLowerCase()] = row[key].trim();
+                    normalizedRow[key.trim().toLowerCase()] = row[key] ? row[key].trim() : "";
                 });
 
-                // Check if any required fields are missing
-                if (!normalizedRow.age || !normalizedRow.gender || !normalizedRow.ethnicity || !normalizedRow.creatinine) {
+                // Check if required fields exist
+                if (!normalizedRow.age || !normalizedRow.gender || !normalizedRow.ethnicity || !normalizedRow.creatinine || !normalizedRow.unit) {
                     setError(`Missing required fields in row ${index + 1}. Please check your file.`);
                     return null;
                 }
 
-                // Validate values
+                // Validate numbers
                 if (isNaN(normalizedRow.age) || isNaN(normalizedRow.creatinine)) {
                     setError(`Invalid number detected in row ${index + 1}. Ensure age and creatinine are numeric.`);
                     return null;
                 }
 
-                return normalizedRow;
-            }).filter(patient => patient !== null);  // Remove invalid entries
+                // Normalize unit
+                let unit = normalizedRow.unit.toLowerCase().replace(/\s/g, ""); // Remove spaces and make lowercase
+
+                if (unit === "mg/dl" || unit === "mgdl") {
+                    unit = "mg/dL";
+                } else if (["micromol/l", "µmol/l", "micromoll", "μmol/l", "umol/l", "μmoll", "m/l"].includes(unit)) {
+                    unit = "micromol/L";
+                } else {
+                    setError(`Invalid unit in row ${index + 1}: "${normalizedRow.unit}". Must be "mg/dL" or "micromol/L".`);
+                    return null;
+                }
+
+                return {
+                    age: normalizedRow.age,
+                    gender: normalizedRow.gender.toLowerCase(),
+                    ethnicity: normalizedRow.ethnicity.toLowerCase(),
+                    creatinine: normalizedRow.creatinine,
+                    unit: unit,
+                };
+            }).filter(patient => patient !== null); // Remove invalid entries
 
             if (patients.length === 0) {
                 setError('CSV file is empty or all rows contain errors. Please check your file.');
@@ -169,19 +322,24 @@ const EGFRCalculator = () => {
         },
         header: true,
         skipEmptyLines: true,
+        
+        
     });
 };
 
+
+    useEffect(() => {
+      if (patients.length > 0) {
+          const selectedPatient = patients[currentPatientIndex];
+          setValue("age", selectedPatient.age);
+          setValue("gender", selectedPatient.gender);
+          setValue("ethnicity", selectedPatient.ethnicity);
+          setValue("creatinine", selectedPatient.creatinine);
+          setCreatinineUnit(selectedPatient.unit);
+      }
+    }, [currentPatientIndex, patients, setValue]);
+
   
-  useEffect(() => {
-    if (patients.length > 0) {
-      const selectedPatient = patients[currentPatientIndex];
-      setValue("age", selectedPatient.age);
-      setValue("gender", selectedPatient.gender.toLowerCase());
-      setValue("ethnicity", selectedPatient.ethnicity.toLowerCase());
-      setValue("creatinine", selectedPatient.creatinine);
-    }
-  }, [currentPatientIndex, patients, setValue]);
   
   
 
@@ -265,176 +423,515 @@ const EGFRCalculator = () => {
           <Tab 
             label="Patient" 
             value="patient"
-            sx={{ 
-              fontSize: '1rem',
-              fontWeight: 500,
-            }}
+            sx={{ fontSize: '1rem', fontWeight: 500 }}
           />
           <Tab 
             label="Clinician" 
             value="clinician"
-            sx={{ 
-              fontSize: '1rem',
-              fontWeight: 500,
-            }}
+            sx={{ fontSize: '1rem', fontWeight: 500 }}
           />
         </Tabs>
 
 
+
         {userType === "clinician" && !isLoggedIn ? (
-          <Box sx={{ textAlign: "center", mt: 3 }}>
-            <Typography variant="h6">Clinician Login</Typography>
+        <Box sx={{ textAlign: "center", mt: 3 }}>
+          <Typography variant="h6">Clinician Login</Typography>
             <TextField
-              label="Email"
+              label="HCP ID"
               fullWidth
               margin="normal"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={hcpId}
+              onChange={(e) => setHcpId(e.target.value)}
             />
-            <TextField
-              label="Password"
-              type="password"
-              fullWidth
-              margin="normal"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <Button
-              variant="contained"
-              color="primary"
-              fullWidth
-              onClick={handleLogin}
-              sx={{ mt: 2 }}
-            >
-              Login
-            </Button>
-            {loginError && (
-              <Alert severity="error" sx={{ mt: 2 }}>
-                {loginError}
-              </Alert>
-            )}
-          </Box>
+          <TextField
+            label="Password"
+            type="password"
+            fullWidth
+            margin="normal"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Button
+            variant="contained"
+            color="primary"
+            fullWidth
+            onClick={handleClinicianLogin}
+            sx={{ mt: 2 }}
+          >
+            Login
+          </Button>
+          {loginError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {loginError}
+            </Alert>
+          )}
+        </Box>
+      ) : userType === "clinician" && isLoggedIn ? (
+        <Box sx={{ textAlign: "center", mt: 3 }}>
+          {patients.length > 1 && (
+            <Grid container spacing={2} justifyContent="center" sx={{ mb: 2 }}>
+              <Grid item>
+                <Button
+                  variant="contained"
+                  color="success"
+                  disabled={currentPatientIndex === 0}
+                  onClick={() => setCurrentPatientIndex((prev) => prev - 1)}
+                >
+                  ← Previous Patient
+                </Button>
+              </Grid>
+              <Grid item>
+                <Typography variant="body1" sx={{ display: "flex", alignItems: "center" }}>
+                  Patient {currentPatientIndex + 1} of {patients.length}
+                </Typography>
+              </Grid>
+              <Grid item>
+                <Button
+                  variant="contained"
+                  color="success"
+                  disabled={currentPatientIndex === patients.length - 1}
+                  onClick={() => setCurrentPatientIndex((prev) => prev + 1)}
+                >
+                  Next Patient →
+                </Button>
+              </Grid>
+            </Grid>
+          )}
+
+          <form onSubmit={handleSubmit(onSubmit)}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <Controller
+                  name="age"
+                  control={control}
+                  rules={{
+                    required: "Age is required",
+                    min: { value: 18, message: "Patients must be 18 or older" },
+                    max: { value: 110, message: "Patients cannot be older than 110" },
+                  }}
+                  render={({ field }) => (
+                    <TextField {...field} label="Age" type="number" fullWidth error={!!errors.age} helperText={errors.age?.message} />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Controller
+                  name="gender"
+                  control={control}
+                  rules={{ required: "Gender is required" }}
+                  render={({ field }) => (
+                    <FormControl fullWidth error={!!errors.gender}>
+                      <InputLabel>Gender</InputLabel>
+                      <Select {...field} label="Gender">
+                        <MenuItem value="male">Male</MenuItem>
+                        <MenuItem value="female">Female</MenuItem>
+                      </Select>
+                    </FormControl>
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Controller
+                  name="ethnicity"
+                  control={control}
+                  rules={{ required: "Ethnicity is required" }}
+                  render={({ field }) => (
+                    <FormControl fullWidth error={!!errors.ethnicity}>
+                      <InputLabel>Ethnicity</InputLabel>
+                      <Select {...field} label="Ethnicity">
+                        <MenuItem value="black">Black</MenuItem>
+                        <MenuItem value="non-black">Non-Black</MenuItem>
+                      </Select>
+                    </FormControl>
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Controller
+                  name="creatinine"
+                  control={control}
+                  rules={{
+                    required: "Creatinine level is required",
+                    min: { value: 0.1, message: "Invalid creatinine level" },
+                    max: { value: 2000, message: "Invalid creatinine level" },
+                  }}
+                  render={({ field }) => (
+                    <TextField {...field} label="Creatinine Level" type="number" fullWidth error={!!errors.creatinine} helperText={errors.creatinine?.message} />
+                  )}
+                />
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Unit</InputLabel>
+                  <Select value={creatinineUnit} onChange={(e) => setCreatinineUnit(e.target.value)}>
+                    <MenuItem value="mg/dL">mg/dL</MenuItem>
+                    <MenuItem value="micromol/L">micromol/L</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Button
+                  component="label"
+                  variant="outlined"
+                  startIcon={<CloudUploadIcon />}
+                  fullWidth
+                  sx={{
+                    height: 56,
+                    borderStyle: "dashed",
+                  }}
+                >
+                  Upload Patient Data (CSV)
+                  <input type="file" hidden accept=".csv" onChange={handleFileUpload} />
+                </Button>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Button type="submit" variant="contained" color="primary" fullWidth disabled={loading} startIcon={loading ? <CircularProgress size={20} /> : <CalculateIcon />} sx={{ height: 56, fontSize: "1.1rem" }}>
+                  {loading ? "Calculating..." : "Calculate eGFR"}
+                </Button>
+              </Grid>
+            </Grid>
+          </form>
+
+          {/* Logout Button */}
+          <Button
+            variant="contained"
+            color="secondary"
+            sx={{ mt: 3 }}
+            onClick={() => {
+              setIsLoggedIn(false);
+              setHcpId("");
+              setPassword("");
+              setCalculationResult(null);
+
+            }}
+          >
+            Logout
+          </Button>
+        </Box>
         ) : (
           <>
+          {userType === "patient" && (
+            isRegistering ? (
+              registerSource === "register" || registerSource === "rememberMe" ? (
+                // PATIENT REGISTRATION FORM
+                <Box sx={{ textAlign: "center", mt: 3 }}>
+                  <Typography variant="h6">Patient Registration</Typography>
+
+                  {/* NHS Field */}
+                  <TextField
+                    label="NHS Number"
+                    fullWidth
+                    margin="normal"
+                    value={nhsNumber}
+                    onChange={(e) => setNhsNumber(e.target.value)}
+                  />
+
+                  {/* Password Field */}
+                  <TextField
+                    label="Password"
+                    type="password"
+                    fullWidth
+                    margin="normal"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+
+                  {registerSource === "rememberMe" && savedPatientData && (
+                    <>
+                      <Typography variant="subtitle1" sx={{ mt: 2 }}>
+                        Saved Patient Information
+                      </Typography>
+                      <Typography variant="body2">
+                        Your data will be saved upon registration.
+                      </Typography>
+                    </>
+                  )}
+
+                  {/* Register Button */}
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    fullWidth
+                    onClick={handlePatientRegister}
+                    sx={{ mt: 2 }}
+                  >
+                    Register
+                  </Button>
+
+                  {/* Cancel Button */}
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    onClick={() => {
+                      setIsRegistering(false);
+                      setRegisterSource(null);
+                    }}
+                    sx={{ mt: 2 }}
+                  >
+                    Cancel
+                  </Button>
+                </Box>
+              ) : registerSource === "login" ? (
+                //  PATIENT LOGIN FORM 
+                <Box sx={{ textAlign: "center", mt: 3 }}>
+                  <Typography variant="h6">Patient Login</Typography>
+
+                  {/* NHS Number Input */}
+                  <TextField
+                    label="NHS Number"
+                    fullWidth
+                    margin="normal"
+                    value={nhsNumber}
+                    onChange={(e) => setNhsNumber(e.target.value)}
+                  />
+
+                  {/* Password Input */}
+                  <TextField
+                    label="Password"
+                    type="password"
+                    fullWidth
+                    margin="normal"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+
+                  {/* Login Button */}
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    fullWidth
+                    onClick={handlePatientLogin}
+                    sx={{ mt: 2 }}
+                  >
+                    Login
+                  </Button>
+
+                  {/* Error Message */}
+                  {loginError && (
+                    <Alert severity="error" sx={{ mt: 2 }}>
+                      {loginError}
+                    </Alert>
+                  )}
+
+                  {/* Cancel Button */}
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    onClick={() => {
+                      setIsRegistering(false);
+                      setRegisterSource(null);
+                    }}
+                    sx={{ mt: 2 }}
+                  >
+                    Cancel
+                  </Button>
+                </Box>
+              ) : (
+                // NEITHER REGISTER NOR LOGIN PICKED
+                <Box sx={{ textAlign: "center", mt: 3 }}>
+                  <Typography variant="h6">
+                    Please select Register or Login from the eGFR form
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    onClick={() => {
+                      setIsRegistering(false);
+                      setRegisterSource(null);
+                    }}
+                    sx={{ mt: 2 }}
+                  >
+                    Cancel
+                  </Button>
+                </Box>
+              )
+            ) : (
+              // SHOW eGFR FORM WHEN NOT REGISTERING
+              <>
+                <form onSubmit={handleSubmit(onSubmit)}>
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} md={6}>
+                      <Controller
+                        name="age"
+                        control={control}
+                        rules={{
+                          required: 'Age is required',
+                          min: { value: 18, message: 'Patients must be 18 or older' },
+                          max: { value: 110, message: 'Patients cannot be older than 110' }
+                        }}
+                        render={({ field }) => (
+                          <TextField
+                            {...field}
+                            label="Age"
+                            type="number"
+                            fullWidth
+                            error={!!errors.age}
+                            helperText={errors.age?.message}
+                          />
+                        )}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12} md={6}>
+                      <Controller
+                        name="gender"
+                        control={control}
+                        rules={{ required: 'Gender is required' }}
+                        render={({ field }) => (
+                          <FormControl fullWidth error={!!errors.gender}>
+                            <InputLabel>Gender</InputLabel>
+                            <Select {...field} label="Gender">
+                              <MenuItem value="male">Male</MenuItem>
+                              <MenuItem value="female">Female</MenuItem>
+                            </Select>
+                          </FormControl>
+                        )}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12} md={6}>
+                      <Controller
+                        name="ethnicity"
+                        control={control}
+                        rules={{ required: 'Ethnicity is required' }}
+                        render={({ field }) => (
+                          <FormControl fullWidth error={!!errors.ethnicity}>
+                            <InputLabel>Ethnicity</InputLabel>
+                            <Select {...field} label="Ethnicity">
+                              <MenuItem value="black">Black</MenuItem>
+                              <MenuItem value="non-black">Non-Black</MenuItem>
+                            </Select>
+                          </FormControl>
+                        )}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12} md={6}>
+                      <Controller
+                        name="creatinine"
+                        control={control}
+                        rules={{
+                          required: 'Creatinine level is required',
+                          min: { value: 0.1, message: 'Invalid creatinine level' },
+                          max: { value: 2000, message: 'Invalid creatinine level' }
+                        }}
+                        render={({ field }) => (
+                          <TextField
+                            {...field}
+                            label="Creatinine Level"
+                            type="number"
+                            fullWidth
+                            error={!!errors.creatinine}
+                            helperText={errors.creatinine?.message}
+                          />
+                        )}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12} md={6} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {/* Unit Dropdown */}
+                      <FormControl sx={{ flex: 1 }}>
+                        <InputLabel>Unit</InputLabel>
+                        <Select
+                          value={creatinineUnit}
+                          onChange={(e) => setCreatinineUnit(e.target.value)}
+                        >
+                          <MenuItem value="mg/dL">mg/dL</MenuItem>
+                          <MenuItem value="micromol/L">micromol/L</MenuItem>
+                        </Select>
+                      </FormControl>
+
+                      {/* Conditionally show Register/Login OR Logout */}
+                      {isLoggedIn ? (
+                        // LOGOUT BUTTON ONLY
+                        <Button
+                          variant="contained"
+                          color="secondary"
+                          sx={{
+                            width: '20%',
+                            minWidth: 50,
+                            height: 40,
+                            fontSize: '0.8rem',
+                            textTransform: 'none'
+                          }}
+                          onClick={() => {
+                            // Log out the patient
+                            setIsLoggedIn(false);
+                            setNhsNumber("");
+                            setPassword("");
+                            setRegisterSource(null);
+                            setCalculationResult(null);
+                          }}
+                        >
+                          Logout
+                        </Button>
+                      ) : (
+                        <>
+                          {/* Register Button */}
+                          <Button
+                            variant="contained"
+                            color="secondary"
+                            sx={{ width: '20%', minWidth: 50, height: 40, fontSize: '0.8rem', textTransform: 'none' }}
+                            onClick={() => {
+                              setIsRegistering(true);
+                              setCalculationResult(null);
+                              setRegisterSource("register");
+                              setSavedPatientData(null);
+                            }}
+                          >
+                            Register
+                          </Button>
+
+                          {/* Login Button */}
+                          <Button
+                            variant="contained"
+                            color="primary"
+                            sx={{ width: '20%', minWidth: 50, height: 40, fontSize: '0.8rem', textTransform: 'none' }}
+                            onClick={() => {
+                              setIsRegistering(true);
+                              setCalculationResult(null);
+                              setRegisterSource("login");
+                            }}
+                          >
+                            Login
+                          </Button>
+                        </>
+                      )}
+                    </Grid>
+
+                    <Grid item xs={12}>
+                      <Button
+                        type="submit"
+                        variant="contained"
+                        color="primary"
+                        fullWidth
+                        disabled={loading}
+                        startIcon={
+                          loading ? <CircularProgress size={20} /> : <CalculateIcon />
+                        }
+                        sx={{ height: 56, fontSize: '1.1rem' }}
+                      >
+                        {loading ? 'Calculating...' : 'Calculate eGFR'}
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </form>
+              </>
+            )
+          )}
+
             {error && (
               <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
                 {error}
               </Alert>
             )}
-            <form onSubmit={handleSubmit(onSubmit)}>
-              <Grid container spacing={3}>
-              {patients.length > 1 && (
-          <Grid item xs={12} sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
-            <Button 
-              variant="contained" 
-              color="secondary" 
-              disabled={currentPatientIndex === 0} 
-              onClick={() => setCurrentPatientIndex(prev => prev - 1)}
-            >
-              ← Previous Patient
-            </Button>
-
-            <Typography variant="body1" sx={{ display: 'flex', alignItems: 'center' }}>
-              Patient {currentPatientIndex + 1} of {patients.length}
-            </Typography>
-
-            <Button 
-              variant="contained" 
-              color="secondary" 
-              disabled={currentPatientIndex === patients.length - 1} 
-              onClick={() => setCurrentPatientIndex(prev => prev + 1)}
-            >
-              Next Patient →
-            </Button>
-          </Grid>
-        )}
-
-        <Grid item xs={12} md={6}>
-          <Controller
-            name="age"
-            control={control}
-            rules={{ required: 'Age is required', min: 18, max: 120 }}
-            render={({ field }) => (
-              <TextField {...field} label="Age" type="number" fullWidth error={!!errors.age} helperText={errors.age?.message} />
-            )}
-          />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Controller
-            name="gender"
-            control={control}
-            rules={{ required: 'Gender is required' }}
-            render={({ field }) => (
-              <FormControl fullWidth error={!!errors.gender}>
-                <InputLabel>Gender</InputLabel>
-                <Select {...field} label="Gender">
-                  <MenuItem value="male">Male</MenuItem>
-                  <MenuItem value="female">Female</MenuItem>
-                </Select>
-              </FormControl>
-            )}
-          />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Controller
-            name="ethnicity"
-            control={control}
-            rules={{ required: 'Ethnicity is required' }}
-            render={({ field }) => (
-              <FormControl fullWidth error={!!errors.ethnicity}>
-                <InputLabel>Ethnicity</InputLabel>
-                <Select {...field} label="Ethnicity">
-                  <MenuItem value="african">African</MenuItem>
-                  <MenuItem value="non-african">Non-African</MenuItem>
-                </Select>
-              </FormControl>
-            )}
-          />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Controller
-            name="creatinine"
-            control={control}
-            rules={{ 
-              required: 'Creatinine level is required',
-              min: { value: 0.1, message: 'Invalid creatinine level' },
-              max: { value: 20, message: 'Invalid creatinine level' }
-            }}
-            render={({ field }) => (
-              <TextField {...field} label="Creatinine Level (mg/dL)" type="number" fullWidth error={!!errors.creatinine} helperText={errors.creatinine?.message} />
-            )}
-          />
-        </Grid>
-        {userType === 'clinician' && (
-          <Grid item xs={12}>
-            <Button
-              component="label"
-              variant="outlined"
-              startIcon={<CloudUploadIcon />}
-              fullWidth
-              sx={{ 
-                height: 56,
-                borderStyle: 'dashed',
-              }}
-            >
-              Upload Patient Data (CSV)
-              <input
-                type="file"
-                hidden
-                accept=".csv"
-                onChange={handleFileUpload}
-              />
-            </Button>
-          </Grid>
-        )}
-
-              <Grid item xs={12}>
-                <Button type="submit" variant="contained" color="primary" fullWidth disabled={loading} startIcon={loading ? <CircularProgress size={20} /> : <CalculateIcon />} sx={{ height: 56, fontSize: '1.1rem' }}>
-                  {loading ? 'Calculating...' : 'Calculate eGFR'}
-                </Button>
-              </Grid>
-            </Grid>
-          </form>
         </>
       )}
       </Paper>
@@ -449,74 +946,98 @@ const EGFRCalculator = () => {
           }}
         >
           <Stack spacing={3}>
-            <Typography 
-              variant="h5" 
-              gutterBottom
-              sx={{ 
-                textAlign: 'center',
-                mb: 3,
-              }}
-            >
-              Results
-            </Typography>
+          <Typography 
+            variant="h5" 
+            gutterBottom
+            sx={{ textAlign: 'center', mb: 3 }}
+          >
+            Results
+          </Typography>
 
-            <Box sx={{ 
-              display: 'flex',
-              justifyContent: 'center',
-              gap: 4,
-              flexWrap: 'wrap'
-            }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography 
-                  variant="h4" 
-                  color="primary"
-                  sx={{ mb: 1 }}
-                >
-                  {calculationResult.egfr}
-                </Typography>
-                <Typography 
-                  variant="body2" 
-                  color="text.secondary"
-                >
-                  mL/min/1.73m²
-                </Typography>
-              </Box>
-
-              <Divider orientation="vertical" flexItem />
-
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography 
-                  variant="h4" 
-                  color="secondary"
-                  sx={{ mb: 1 }}
-                >
-                  Stage {calculationResult.stage}
-                </Typography>
-                <Typography 
-                  variant="body2" 
-                  color="text.secondary"
-                >
-                  CKD Stage
-                </Typography>
-              </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 4, flexWrap: 'wrap' }}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4" color="primary" sx={{ mb: 1 }}>
+                {calculationResult.egfr}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                mL/min/1.73m²
+              </Typography>
             </Box>
 
-            <Divider />
+            <Divider orientation="vertical" flexItem />
 
-            <Box>
-              <Typography 
-                variant="subtitle1" 
-                color="text.secondary"
-                gutterBottom
+            <Box sx={{ textAlign: 'center', display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="h4" color="secondary" sx={{ mb: 1 }}>
+                Stage {calculationResult.stage}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                CKD Stage
+              </Typography>
+
+              {userType === "patient" && showRememberMeButton && (
+                <Button
+                variant="contained"
+                color="secondary"
+                sx={{
+                  width: '25%',
+                  minWidth: 100, 
+                  height: 55,
+                  fontSize: '0.9rem',
+                  paddingX: 2,
+                  textTransform: 'none',
+                }}
+                onClick={() => {
+                  if (!getValues) {
+                    console.error("getValues is not defined!");
+                    return;
+                  }
+                  const rememberedData = {
+                    age: getValues("age"),
+                    gender: getValues("gender"),
+                    ethnicity: getValues("ethnicity"),
+                    creatinine: getValues("creatinine"),
+                    unit: getValues("unit"),
+                  };
+                  console.log("Remember Me Clicked! Data:", rememberedData);
+                  if (isLoggedIn) {
+                    // If logged in, update the patient's record in Firestore (merging the data)
+                    setDoc(doc(db, "patients", currentNhsNumber), rememberedData, { merge: true })
+                      .then(() => {
+                        alert("Your data has been saved");
+                      })
+                      .catch((error) => {
+                        console.error("Error saving data:", error);
+                      });
+                  } else {
+                    // If not logged in, behave as before: save the data to state and go to the register tab
+                    setSavedPatientData(rememberedData);
+                    setCalculationResult(null);
+                    setTimeout(() => {
+                      setIsRegistering(true);
+                      setRegisterSource("rememberMe");
+                    }, 100);
+                  }
+                }}                
               >
-                Recommendations
-              </Typography>
-              <Typography variant="body1">
-                {calculationResult.recommendations}
-              </Typography>
+                Remember Me
+              </Button>                          
+              )}
+
             </Box>
-          </Stack>
-        </Paper>
+          </Box>
+
+          <Divider />
+
+          <Box>
+          <Typography variant="subtitle1" color="text.secondary" gutterBottom>
+            Recommendations
+          </Typography>
+          <Typography variant="body1">
+            {calculationResult.recommendations}
+          </Typography>
+        </Box>
+      </Stack>
+    </Paper>
       )}
     </Container>
   );

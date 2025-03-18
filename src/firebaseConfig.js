@@ -1,8 +1,9 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
-// Firebase configuration (DO NOT SHARE PUBLICLY)
+
+// Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyCaoCuTwlKX4pN3IS4D7jZbsVyM6UOvk3o",
   authDomain: "clinician-da122.firebaseapp.com",
@@ -18,4 +19,4 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app); // Authentication
 const db = getFirestore(app); // Firestore Database
 
-export { app, auth, db };
+export { app, auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, doc, setDoc, getDoc };
