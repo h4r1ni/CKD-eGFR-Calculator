@@ -1,0 +1,6 @@
+patientID,gender,age,ethnicity,creatinine,unit
+1234,male,23,African,2,mg/dl
+5678,female,18,African,1,micromol/l
+1,male,23,non-African,6,m/l
+2,female,18,non-African,8,mg/dl
+23,female,8,non-african,5,micromol/l
