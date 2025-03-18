@@ -7,4 +7,5 @@ This project provides a setup to calculate CKD (Chronic Kidney Disease) using Re
 1. Install dependencies: `npm install`
 2. Start development server: `npm run dev`
 3. Open `http://localhost:5173` in your browser
-4. Emial: admin@gmail.com ; Pass:  admin2025
+4. Clinician detail example: ph123456 ; Pass:  admin2025
+5. Example .csv file is also added within the src folder in example_data folder
