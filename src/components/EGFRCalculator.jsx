@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { db, auth } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
-import { setDoc, doc } from "firebase/firestore";
+import { setDoc, doc, getDoc } from "firebase/firestore";
 
 
 import {
@@ -48,28 +48,84 @@ const EGFRCalculator = () => {
   const [currentPatientIndex, setCurrentPatientIndex] = useState(0); // Controls navigation
   const [currentNhsNumber, setCurrentNhsNumber] = useState("");
   const [role, setRole] = useState(null);
+  const [isPediatricMode, setPediatricMode] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  // const initialUserType = new URLSearchParams(useLocation().search).get('type') || 'patient';
 
 
+  const getPediatricRecommendations = (egfr) => {
+    if (egfr >= 90) return "Normal kidney function. Monitor growth and development.";
+    if (egfr >= 60) return "Mild kidney disease. Regular monitoring is recommended.";
+    if (egfr >= 30) return "Moderate kidney disease. Consult a pediatric nephrologist.";
+    if (egfr >= 15) return "Severe kidney disease. Immediate medical intervention required.";
+    return "Kidney failure. Urgent medical care required.";
+  };
+
+  
+  const onSubmitPediatric = (data) => {
+    setLoading(true);
+    try {
+      const { age, height, gender, creatinine, creatinineUnit } = data;
+      console.log("Pediatric data received:", data);
+      let creatinineMgDl = parseFloat(creatinine);
+      const unitLower = creatinineUnit ? creatinineUnit.toLowerCase() : "mg/dl";
+      console.log("Before conversion - creatinine:", creatinineMgDl, "Unit:", unitLower);
+      if (unitLower === "micromol/l" || unitLower === "µmol/l") {
+        creatinineMgDl = creatinineMgDl / 88.4;
+        console.log("After conversion - creatinine (mg/dL):", creatinineMgDl);
+      } else {
+        console.log("No conversion applied. Assuming creatinine is in mg/dL:", creatinineMgDl);
+      }
+      if (isNaN(creatinineMgDl) || creatinineMgDl <= 0) {
+        setError("Invalid creatinine value.");
+        setLoading(false);
+        return;
+      }
+      if (isNaN(height) || height <= 0) {
+        setError("Invalid height value.");
+        setLoading(false);
+        return;
+      }
+      const kValue = 0.413;
+      const egfr = (kValue * parseFloat(height)) / creatinineMgDl;
+      // Calculate the CKD stage (using the same thresholds as the adult version)
+      const stage = getCKDStage(egfr);
+      setCalculationResult({
+        egfr: egfr.toFixed(2),
+        stage,
+        recommendations: getPediatricRecommendations(egfr),
+      });
+      console.log("Pediatric eGFR Calculation:", egfr);
+    } catch (err) {
+      console.error("Error in pediatric calculation:", err);
+      setError("Error calculating Pediatric eGFR. Please check your inputs.");
+    }
+    setLoading(false);
+  };
+  
+  
+  
   
   useEffect(() => {
     setUserType(initialUserType);
   }, [initialUserType]);
   
 
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+
 
   const { control, handleSubmit, reset, setValue, getValues, formState: { errors } } = useForm({
     defaultValues: {
       age: '',
+      height: '',
       gender: '',
       ethnicity: '',
       creatinine: '',
-      unit: 'mg/dL',  // Default unit
+      unit: '',  // Default unit
     },
   });
   
-  
+
   const handleClinicianLogin = async () => {
     try {
         console.log("Clinician Login button clicked!");
@@ -185,8 +241,30 @@ const handlePatientLogin = async () => {
       setIsRegistering(false);
       setRegisterSource(null);
 
+      const fetchPatientData = async (nhsNum) => {
+        try {
+          const docRef = doc(db, "patients", nhsNum);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const patientData = docSnap.data();
+            // Use setValue to prefill your form fields:
+            setValue("age", patientData.age);
+            setValue("gender", patientData.gender);
+            setValue("ethnicity", patientData.ethnicity);
+            setValue("creatinine", patientData.creatinine);
+            setCreatinineUnit(patientData.unit);
+          }
+        }
+        catch (error) {
+          console.error("Error sending data", error.message);
+          setLoginError("Error sending data to database. Please try again.");
+        }
+      }
+      fetchPatientData(nhsNumber);
       console.log("Successfully logged in as:", nhsNumber);
       alert("🎉 Login successful!");
+
+      
   } catch (error) {
       console.error("Login error:", error.message);
       setLoginError("Invalid credentials. Please try again.");
@@ -762,6 +840,121 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                   </Button>
                 </Box>
               )
+            ) : isPediatricMode ? (
+              <Box sx={{ textAlign: "center", mt: 3 }}>
+    <Typography variant="h5">Pediatric eGFR Calculator</Typography>
+    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      The standard eGFR formula is not recommended for individuals under 18 years old. Please use the pediatric calculator below.
+    </Typography>
+
+    <form onSubmit={handleSubmit(onSubmitPediatric)}>
+      <Grid container spacing={3}>
+        {/* Age and Height Side by Side */}
+        <Grid item xs={12} md={6}>
+          <Controller
+            name="age"
+            control={control}
+            rules={{
+              required: "Age is required",
+              min: { value: 1, message: "Minimum age is 1 year" },
+              max: { value: 17, message: "This calculator is for ages under 18" },
+            }}
+            render={({ field }) => (
+              <TextField {...field} label="Age (Years)" type="number" fullWidth error={!!errors.age} helperText={errors.age?.message} />
+            )}
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Controller
+            name="height"
+            control={control}
+            rules={{
+              required: "Height is required",
+              min: { value: 30, message: "Height must be at least 30 cm" },
+              max: { value: 200, message: "Height must be below 200 cm" },
+            }}
+            render={({ field }) => (
+              <TextField {...field} label="Height (cm)" type="number" fullWidth error={!!errors.height} helperText={errors.height?.message} />
+            )}
+          />
+        </Grid>
+
+        {/* Gender and Serum Creatinine Side by Side */}
+        <Grid item xs={12} md={6}>
+          <Controller
+            name="gender"
+            control={control}
+            rules={{ required: "Gender is required" }}
+            render={({ field }) => (
+              <FormControl fullWidth error={!!errors.gender}>
+                <InputLabel>Gender</InputLabel>
+                <Select {...field} label="Gender">
+                  <MenuItem value="male">Male</MenuItem>
+                  <MenuItem value="female">Female</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Controller
+            name="creatinine"
+            control={control}
+            rules={{
+              required: "Serum Creatinine is required",
+              min: { value: 0.1, message: "Invalid creatinine level" },
+              max: { value: 2000, message: "Invalid creatinine level" },
+            }}
+            render={({ field }) => (
+              <TextField {...field} label="Serum Creatinine" type="number" fullWidth error={!!errors.creatinine} helperText={errors.creatinine?.message} />
+            )}
+          />
+        </Grid>
+
+        {/* Creatinine Unit */}
+        <Grid item xs={12} md={6}>
+          <Controller
+            name="creatinineUnit"
+            control={control}
+            defaultValue="micromol/L" // Or "mg/dL" if that's preferred
+            render={({ field }) => (
+              <FormControl fullWidth>
+                <InputLabel>Creatinine Unit</InputLabel>
+                <Select {...field}>
+                  <MenuItem value="mg/dL">mg/dL</MenuItem>
+                  <MenuItem value="micromol/L">micromol/L</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+          />
+        </Grid>
+      </Grid>
+
+      {/* Calculate Button */}
+      <Button
+        type="submit"
+        variant="contained"
+        color="primary"
+        fullWidth
+        sx={{ mt: 3, fontSize: "1.1rem", height: 56 }}
+      >
+        Calculate Pediatric eGFR
+      </Button>
+
+      {/* Back to Main Calculator */}
+      <Button
+        variant="outlined"
+        fullWidth
+        onClick={() => {
+          setCalculationResult(null);
+          setPediatricMode(false);
+        }}
+        sx={{ mt: 2, fontSize: "1rem" }}
+      >
+        Back to Main Calculator
+      </Button>
+    </form>
+  </Box>
             ) : (
               // SHOW eGFR FORM WHEN NOT REGISTERING
               <>
@@ -913,6 +1106,15 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                           >
                             Login
                           </Button>
+                          {/* Are you under 18? Button */}
+                          <Button
+                            variant="contained"
+                            color="warning"
+                            sx={{ width: '20%', minWidth: 50, height: 40, fontSize: '0.8rem', textTransform: 'none' }}
+                            onClick={() => setPediatricMode(true)}
+                          >
+                            Under 18?
+                          </Button>
                         </>
                       )}
                     </Grid>
@@ -985,7 +1187,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                 CKD Stage
               </Typography>
 
-              {userType === "patient" && showRememberMeButton && (
+              {userType === "patient" && showRememberMeButton && !isPediatricMode && (
                 <Button
                 variant="contained"
                 color="secondary"
