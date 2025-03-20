@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { db, auth } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
-import { setDoc, doc, getDoc } from "firebase/firestore";
+import {collection, setDoc, doc, getDoc, addDoc, serverTimestamp } from "firebase/firestore";
 
 
 import {
@@ -125,6 +125,16 @@ const EGFRCalculator = () => {
     },
   });
   
+  const getIP = async () => {
+    try {
+      const response = await fetch("https://api64.ipify.org?format=json");
+      const data = await response.json();
+      return data.ip;
+    } catch (error) {
+      console.error("Error fetching IP:", error);
+      return "Unknown";
+    }
+  };
 
   const handleClinicianLogin = async () => {
     try {
@@ -150,6 +160,21 @@ const EGFRCalculator = () => {
     } catch (error) {
         console.error("Clinician Login error:", error.message);
         setLoginError("Invalid credentials. Please try again.");
+
+        const offence = await getIP();
+        const offenceTime = new Date().toJSON();
+        try {
+          await setDoc(doc(db, "attemptlog", `cli_${hcpId}_${offenceTime}`), {
+            type: "clinician",
+            id: hcpId || "Unknown",
+            timestamp: serverTimestamp(),
+            ip: offence,
+          });
+          console.log("Suspicious login attempt recorded.");
+        } catch (error) {
+          console.error("Error logging attempt:", error.message);
+        }
+        
     }
   };
   
@@ -268,6 +293,19 @@ const handlePatientLogin = async () => {
   } catch (error) {
       console.error("Login error:", error.message);
       setLoginError("Invalid credentials. Please try again.");
+      const offence = await getIP();
+      const offenceTime = new Date().toJSON();
+      try {
+        await setDoc(doc(db, "attemptlog", `pat_${nhsNumber}_${offenceTime}`), {
+          type: "patient",
+          id: nhsNumber || "Unknown",
+          timestamp: serverTimestamp(),
+          ip: offence,
+        });
+        console.log("Suspicious login attempt recorded.");
+      } catch (error) {
+        console.error("Error logging attempt:", error.message);
+      }
   }
 };
 
