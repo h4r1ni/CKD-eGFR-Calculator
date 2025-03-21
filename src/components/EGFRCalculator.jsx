@@ -414,6 +414,18 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
 
     if (!file) return;
 
+    const batchTime = new Date().toJSON();
+    try {
+      setDoc(doc(db, "batch", `${hcpId}_${batchTime}`), {
+      clinician: hcpId || "Unknown",
+      timestamp: serverTimestamp(),
+      file: file.name
+    });
+    console.log("Batch use recorded.");
+    } catch (error) {
+      console.error("Error logging batch use:", error.message);
+    }
+
     Papa.parse(file, {
         complete: (results) => {
             if (results.errors.length) {
