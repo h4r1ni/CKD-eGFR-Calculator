@@ -157,6 +157,21 @@ const EGFRCalculator = () => {
         setIsRegistering(false);
         setRegisterSource(null);
         alert("Clinician Login successful!");
+        const login = await getIP();
+        const loginTime = new Date().toJSON();
+        try {
+          await setDoc(doc(db, "attemptlog", `cli_${hcpId}_${loginTime}`), {
+            type: "clinician",
+            id: hcpId || "Unknown",
+            timestamp: serverTimestamp(),
+            ip: login,
+            status: "success"
+          });
+          console.log("Successful login recorded.");
+        } catch (error) {
+          console.error("Error logging attempt:", error.message);
+        }
+        
     } catch (error) {
         console.error("Clinician Login error:", error.message);
         setLoginError("Invalid credentials. Please try again.");
@@ -164,11 +179,12 @@ const EGFRCalculator = () => {
         const offence = await getIP();
         const offenceTime = new Date().toJSON();
         try {
-          await setDoc(doc(db, "attemptlog", `cli_${hcpId}_${offenceTime}`), {
+          await setDoc(doc(db, "attemptlog", `FAIL_cli_${hcpId}_${offenceTime}`), {
             type: "clinician",
             id: hcpId || "Unknown",
             timestamp: serverTimestamp(),
             ip: offence,
+            status: "failed"
           });
           console.log("Suspicious login attempt recorded.");
         } catch (error) {
@@ -288,6 +304,20 @@ const handlePatientLogin = async () => {
       fetchPatientData(nhsNumber);
       console.log("Successfully logged in as:", nhsNumber);
       alert("🎉 Login successful!");
+      const login = await getIP();
+      const loginTime = new Date().toJSON();
+      try {
+        await setDoc(doc(db, "attemptlog", `pat_${nhsNumber}_${loginTime}`), {
+          type: "patient",
+          id: nhsNumber || "Unknown",
+          timestamp: serverTimestamp(),
+          ip: login,
+          status: "success"
+        });
+        console.log("Successful login recorded.");
+      } catch (error) {
+        console.error("Error logging attempt:", error.message);
+      }
 
       
   } catch (error) {
@@ -296,11 +326,12 @@ const handlePatientLogin = async () => {
       const offence = await getIP();
       const offenceTime = new Date().toJSON();
       try {
-        await setDoc(doc(db, "attemptlog", `pat_${nhsNumber}_${offenceTime}`), {
+        await setDoc(doc(db, "attemptlog", `FAIL_pat_${nhsNumber}_${offenceTime}`), {
           type: "patient",
           id: nhsNumber || "Unknown",
           timestamp: serverTimestamp(),
           ip: offence,
+          status: "failed"
         });
         console.log("Suspicious login attempt recorded.");
       } catch (error) {
