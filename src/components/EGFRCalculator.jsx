@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { db, auth } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
-import { setDoc, doc, getDoc } from "firebase/firestore";
+import {collection, setDoc, doc, getDoc, addDoc, serverTimestamp } from "firebase/firestore";
 
 
 import {
@@ -121,6 +121,16 @@ const EGFRCalculator = () => {
     },
   });
   
+  const getIP = async () => {
+    try {
+      const response = await fetch("https://api64.ipify.org?format=json");
+      const data = await response.json();
+      return data.ip;
+    } catch (error) {
+      console.error("Error fetching IP:", error);
+      return "Unknown";
+    }
+  };
 
   const handleClinicianLogin = async () => {
     try {
@@ -142,9 +152,40 @@ const EGFRCalculator = () => {
         setIsRegistering(false);
         setRegisterSource(null);
         alert("Clinician Login successful!");
+        const login = await getIP();
+        const loginTime = new Date().toJSON();
+        try {
+          await setDoc(doc(db, "attemptlog", `cli_${hcpId}_${loginTime}`), {
+            type: "clinician",
+            id: hcpId || "Unknown",
+            timestamp: serverTimestamp(),
+            ip: login,
+            status: "success"
+          });
+          console.log("Successful login recorded.");
+        } catch (error) {
+          console.error("Error logging attempt:", error.message);
+        }
+        
     } catch (error) {
         console.error("Clinician Login error:", error.message);
         setLoginError("Invalid credentials. Please try again.");
+
+        const offence = await getIP();
+        const offenceTime = new Date().toJSON();
+        try {
+          await setDoc(doc(db, "attemptlog", `FAIL_cli_${hcpId}_${offenceTime}`), {
+            type: "clinician",
+            id: hcpId || "Unknown",
+            timestamp: serverTimestamp(),
+            ip: offence,
+            status: "failed"
+          });
+          console.log("Suspicious login attempt recorded.");
+        } catch (error) {
+          console.error("Error logging attempt:", error.message);
+        }
+        
     }
   };
   
@@ -256,11 +297,39 @@ const handlePatientLogin = async () => {
       fetchPatientData(nhsNumber);
       console.log("Successfully logged in as:", nhsNumber);
       alert("🎉 Login successful!");
+      const login = await getIP();
+      const loginTime = new Date().toJSON();
+      try {
+        await setDoc(doc(db, "attemptlog", `pat_${nhsNumber}_${loginTime}`), {
+          type: "patient",
+          id: nhsNumber || "Unknown",
+          timestamp: serverTimestamp(),
+          ip: login,
+          status: "success"
+        });
+        console.log("Successful login recorded.");
+      } catch (error) {
+        console.error("Error logging attempt:", error.message);
+      }
 
       
   } catch (error) {
       console.error("Login error:", error.message);
       setLoginError("Invalid credentials. Please try again.");
+      const offence = await getIP();
+      const offenceTime = new Date().toJSON();
+      try {
+        await setDoc(doc(db, "attemptlog", `FAIL_pat_${nhsNumber}_${offenceTime}`), {
+          type: "patient",
+          id: nhsNumber || "Unknown",
+          timestamp: serverTimestamp(),
+          ip: offence,
+          status: "failed"
+        });
+        console.log("Suspicious login attempt recorded.");
+      } catch (error) {
+        console.error("Error logging attempt:", error.message);
+      }
   }
 };
 
@@ -337,6 +406,18 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
     const file = event.target.files[0];
 
     if (!file) return;
+
+    const batchTime = new Date().toJSON();
+    try {
+      setDoc(doc(db, "batch", `${hcpId}_${batchTime}`), {
+      clinician: hcpId || "Unknown",
+      timestamp: serverTimestamp(),
+      file: file.name
+    });
+    console.log("Batch use recorded.");
+    } catch (error) {
+      console.error("Error logging batch use:", error.message);
+    }
 
     Papa.parse(file, {
       complete: (results) => {
