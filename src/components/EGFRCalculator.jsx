@@ -67,16 +67,12 @@ const EGFRCalculator = () => {
     setLoading(true);
     try {
       const { age, height, gender, creatinine, creatinineUnit } = data;
-      console.log("Pediatric data received:", data);
       let creatinineMgDl = parseFloat(creatinine);
       const unitLower = creatinineUnit ? creatinineUnit.toLowerCase() : "mg/dl";
-      console.log("Before conversion - creatinine:", creatinineMgDl, "Unit:", unitLower);
+
       if (unitLower === "micromol/l" || unitLower === "µmol/l") {
         creatinineMgDl = creatinineMgDl / 88.4;
-        console.log("After conversion - creatinine (mg/dL):", creatinineMgDl);
-      } else {
-        console.log("No conversion applied. Assuming creatinine is in mg/dL:", creatinineMgDl);
-      }
+      } 
       if (isNaN(creatinineMgDl) || creatinineMgDl <= 0) {
         setError("Invalid creatinine value.");
         setLoading(false);
@@ -87,16 +83,16 @@ const EGFRCalculator = () => {
         setLoading(false);
         return;
       }
+      
       const kValue = 0.413;
       const egfr = (kValue * parseFloat(height)) / creatinineMgDl;
-      // Calculate the CKD stage (using the same thresholds as the adult version)
       const stage = getCKDStage(egfr);
+      
       setCalculationResult({
         egfr: egfr.toFixed(2),
         stage,
         recommendations: getPediatricRecommendations(egfr),
       });
-      console.log("Pediatric eGFR Calculation:", egfr);
     } catch (err) {
       console.error("Error in pediatric calculation:", err);
       setError("Error calculating Pediatric eGFR. Please check your inputs.");
@@ -128,7 +124,6 @@ const EGFRCalculator = () => {
 
   const handleClinicianLogin = async () => {
     try {
-        console.log("Clinician Login button clicked!");
         if (!hcpId) {
             alert("HCP ID is required!");
             return;
@@ -171,16 +166,16 @@ const handlePatientRegister = async () => {
           return;
       }
 
-      // Convert NHS Number into a valid Firebase email format
+      // Convert NHS Number into a valid Firebase email format for the authenticator
       const nhsEmail = `${nhsNumber}@nhsuser.com`;
 
-      // 1️Create User in Firebase Authentication
+      // Create User in Firebase Authentication
       const userCredential = await createUserWithEmailAndPassword(auth, nhsEmail, password);
       const userId = userCredential.user.uid;
 
-      // 2️Store the actual NHS number and patient data in Firestore
+      // Stors the  NHS number and patient data in Firestore
       const patientData = {
-          nhsNumber,  //  Save real NHS number in Firestore
+          nhsNumber,
           age: registerSource === "rememberMe" && savedPatientData ? savedPatientData.age : null,
           gender: registerSource === "rememberMe" && savedPatientData ? savedPatientData.gender : null,
           ethnicity: registerSource === "rememberMe" && savedPatientData ? savedPatientData.ethnicity : null,
@@ -188,8 +183,6 @@ const handlePatientRegister = async () => {
           unit: registerSource === "rememberMe" && savedPatientData ? savedPatientData.unit : null,
           timestamp: new Date(),
       };
-
-      console.log("Data being saved to Firestore:", patientData);
 
       // Save Patient Data in Firestore using NHS Number
 
@@ -346,68 +339,76 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
     if (!file) return;
 
     Papa.parse(file, {
-        complete: (results) => {
-            if (results.errors.length) {
-                setError(`Error processing CSV file: ${results.errors[0].message}`);
-                return;
-            }
-
-            const patients = results.data.map((row, index) => {
-                // Normalize column names (force lowercase and trim spaces)
-                const normalizedRow = {};
-                Object.keys(row).forEach(key => {
-                    normalizedRow[key.trim().toLowerCase()] = row[key] ? row[key].trim() : "";
-                });
-
-                // Check if required fields exist
-                if (!normalizedRow.age || !normalizedRow.gender || !normalizedRow.ethnicity || !normalizedRow.creatinine || !normalizedRow.unit) {
-                    setError(`Missing required fields in row ${index + 1}. Please check your file.`);
-                    return null;
-                }
-
-                // Validate numbers
-                if (isNaN(normalizedRow.age) || isNaN(normalizedRow.creatinine)) {
-                    setError(`Invalid number detected in row ${index + 1}. Ensure age and creatinine are numeric.`);
-                    return null;
-                }
-
-                // Normalize unit
-                let unit = normalizedRow.unit.toLowerCase().replace(/\s/g, ""); // Remove spaces and make lowercase
-
-                if (unit === "mg/dl" || unit === "mgdl") {
-                    unit = "mg/dL";
-                } else if (["micromol/l", "µmol/l", "micromoll", "μmol/l", "umol/l", "μmoll", "m/l"].includes(unit)) {
-                    unit = "micromol/L";
-                } else {
-                    setError(`Invalid unit in row ${index + 1}: "${normalizedRow.unit}". Must be "mg/dL" or "micromol/L".`);
-                    return null;
-                }
-
-                return {
-                    age: normalizedRow.age,
-                    gender: normalizedRow.gender.toLowerCase(),
-                    ethnicity: normalizedRow.ethnicity.toLowerCase(),
-                    creatinine: normalizedRow.creatinine,
-                    unit: unit,
-                };
-            }).filter(patient => patient !== null); // Remove invalid entries
-
-            if (patients.length === 0) {
-                setError('CSV file is empty or all rows contain errors. Please check your file.');
-                return;
-            }
-
-            setPatients(patients);
-            setCurrentPatientIndex(0);
-            setError(''); // Clear any previous errors
-        },
-        header: true,
-        skipEmptyLines: true,
-        
-        
-    });
+      complete: (results) => {
+        if (results.errors.length) {
+          setError(`Error processing CSV file: ${results.errors[0].message}`);
+          return;
+        }
+    
+        const patientsData = results.data.map((row, index) => {
+          const normalizedRow = {};
+          Object.keys(row).forEach(key => {
+            normalizedRow[key.trim().toLowerCase()] = row[key] ? row[key].trim() : "";
+          });
+    
+          if (
+            !normalizedRow.age ||
+            !normalizedRow.gender ||
+            !normalizedRow.ethnicity ||
+            !normalizedRow.creatinine ||
+            !normalizedRow.unit
+          ) {
+            setError(`Missing required fields in row ${index + 1}. Please check your file.`);
+            return null;
+          }
+    
+          if (isNaN(normalizedRow.age) || isNaN(normalizedRow.creatinine)) {
+            setError(`Invalid number detected in row ${index + 1}. Ensure age and creatinine are numeric.`);
+            return null;
+          }
+    
+          let unit = normalizedRow.unit.toLowerCase().replace(/\s/g, "");
+          if (unit === "mg/dl" || unit === "mgdl") {
+            unit = "mg/dL";
+          } else if (
+            ["micromol/l", "µmol/l", "micromoll", "μmol/l", "umol/l", "μmoll", "m/l"].includes(unit)
+          ) {
+            unit = "micromol/L";
+          } else {
+            setError(`Invalid unit in row ${index + 1}: "${normalizedRow.unit}". Must be "mg/dL" or "micromol/L".`);
+            return null;
+          }
+    
+          return {
+            age: normalizedRow.age,
+            gender: normalizedRow.gender.toLowerCase(),
+            ethnicity: normalizedRow.ethnicity.toLowerCase(),
+            creatinine: normalizedRow.creatinine,
+            unit,
+          };
+        }).filter(patient => patient !== null);
+    
+        if (patientsData.length === 0) {
+          setError('CSV file is empty or all rows contain errors. Please check your file.');
+          return;
+        }
+    
+        // Update state and reset form fields with first patient’s data:
+        setPatients(patientsData);
+        setCurrentPatientIndex(0);
+        reset({
+          age: patientsData[0].age,
+          gender: patientsData[0].gender,
+          ethnicity: patientsData[0].ethnicity,
+          creatinine: patientsData[0].creatinine,
+          unit: patientsData[0].unit,
+        });
+        setError('');
+      },
+      header: true,
+      skipEmptyLines: true,
+    });    
 };
-
 
     useEffect(() => {
       if (patients.length > 0) {
@@ -698,6 +699,17 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
               setHcpId("");
               setPassword("");
               setCalculationResult(null);
+              setRole(null);
+              setPatients([]);
+              setCurrentPatientIndex(0);
+              setCreatinineUnit('mg/dL');
+              reset({
+                age: '',
+                gender: '',
+                ethnicity: '',
+                creatinine: '',
+                unit: 'mg/dL',
+              });
             }}
           >
             Logout
@@ -1071,8 +1083,18 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                             setPassword("");
                             setRegisterSource(null);
                             setCalculationResult(null);
+                            setCreatinineUnit('mg/dL');
                             setRole(null);
+                            reset({
+                              age: "",
+                              height: "",
+                              gender: "",
+                              ethnicity: "",
+                              creatinine: "",
+                              creatinineUnit: "mg/dL",
+                            });
                           }}
+                          
                         >
                           Logout
                         </Button>
@@ -1209,7 +1231,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                     gender: getValues("gender"),
                     ethnicity: getValues("ethnicity"),
                     creatinine: getValues("creatinine"),
-                    unit: getValues("unit"),
+                    unit: creatinineUnit,
                   };
                   console.log("Remember Me Clicked! Data:", rememberedData);
                   if (isLoggedIn) {
