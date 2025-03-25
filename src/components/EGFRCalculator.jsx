@@ -221,7 +221,7 @@ const handlePatientRegister = async () => {
           gender: registerSource === "rememberMe" && savedPatientData ? savedPatientData.gender : null,
           ethnicity: registerSource === "rememberMe" && savedPatientData ? savedPatientData.ethnicity : null,
           creatinine: registerSource === "rememberMe" && savedPatientData ? savedPatientData.creatinine : null,
-          unit: registerSource === "rememberMe" && savedPatientData ? savedPatientData.unit : null,
+          unit: registerSource === "rememberMe" && savedPatientData ? savedPatientData.unit : creatinineUnit,
           timestamp: new Date(),
       };
 
@@ -431,7 +431,8 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
           Object.keys(row).forEach(key => {
             normalizedRow[key.trim().toLowerCase()] = row[key] ? row[key].trim() : "";
           });
-    
+          console.log("Row", index, "normalized ethnicity:", normalizedRow.ethnicity);
+
           if (
             !normalizedRow.age ||
             !normalizedRow.gender ||
@@ -490,6 +491,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
       skipEmptyLines: true,
     });    
 };
+
 
     useEffect(() => {
       if (patients.length > 0) {
@@ -1036,16 +1038,25 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
 
       {/* Back to Main Calculator */}
       <Button
-        variant="outlined"
-        fullWidth
-        onClick={() => {
-          setCalculationResult(null);
-          setPediatricMode(false);
-        }}
-        sx={{ mt: 2, fontSize: "1rem" }}
-      >
-        Back to Main Calculator
+          variant="outlined"
+          fullWidth
+          onClick={() => {
+            reset({
+              age: '',
+              height: '',
+              gender: '',
+              ethnicity: '',
+              creatinine: '',
+              creatinineUnit: 'mg/dL',
+            });
+            setCalculationResult(null);
+            setPediatricMode(false);
+          }}
+          sx={{ mt: 2, fontSize: "1rem" }}
+        >
+          Back to Main Calculator
       </Button>
+
     </form>
   </Box>
             ) : (
