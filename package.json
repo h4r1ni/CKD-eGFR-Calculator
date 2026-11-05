@@ -34,5 +34,16 @@
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
     "vite": "^6.0.5"
-  }
+  },
+  "description": "This project provides a setup to calculate CKD (Chronic Kidney Disease) using React and Vite with HMR and ESLint rules.",
+  "main": "eslint.config.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/h4r1ni/CKD-eGFR-Calculator.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/h4r1ni/CKD-eGFR-Calculator/issues"
+  },
+  "homepage": "https://github.com/h4r1ni/CKD-eGFR-Calculator#readme"
 }

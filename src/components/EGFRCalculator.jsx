@@ -51,8 +51,7 @@ const EGFRCalculator = () => {
   const [isPediatricMode, setPediatricMode] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  // const initialUserType = new URLSearchParams(useLocation().search).get('type') || 'patient';
-
+  const [showRememberMeButton, setShowRememberMeButton] = useState(false);
 
   const getPediatricRecommendations = (egfr) => {
     if (egfr >= 90) return "Normal kidney function. Monitor growth and development.";
@@ -63,41 +62,35 @@ const EGFRCalculator = () => {
   };
 
   
-  const onSubmitPediatric = (data) => {
+  const onSubmit = (data) => {
     setLoading(true);
-    try {
-      const { age, height, gender, creatinine, creatinineUnit } = data;
-      let creatinineMgDl = parseFloat(creatinine);
-      const unitLower = creatinineUnit ? creatinineUnit.toLowerCase() : "mg/dl";
+    setError("");
+    setCalculationResult(null);
 
-      if (unitLower === "micromol/l" || unitLower === "µmol/l") {
-        creatinineMgDl = creatinineMgDl / 88.4;
-      } 
-      if (isNaN(creatinineMgDl) || creatinineMgDl <= 0) {
-        setError("Invalid creatinine value.");
-        setLoading(false);
-        return;
-      }
-      if (isNaN(height) || height <= 0) {
-        setError("Invalid height value.");
-        setLoading(false);
-        return;
-      }
-      
-      const kValue = 0.413;
-      const egfr = (kValue * parseFloat(height)) / creatinineMgDl;
+    try {
+      const egfr = calculateEGFR(
+        data.creatinine,
+        data.age,
+        data.gender,
+        data.ethnicity,
+        creatinineUnit
+      );
+
       const stage = getCKDStage(egfr);
-      
+
       setCalculationResult({
         egfr: egfr.toFixed(2),
         stage,
-        recommendations: getPediatricRecommendations(egfr),
+        recommendations: getRecommendations(stage),
       });
+
+      setShowRememberMeButton(true);
+
     } catch (err) {
-      console.error("Error in pediatric calculation:", err);
-      setError("Error calculating Pediatric eGFR. Please check your inputs.");
+      setError(err.message || "Error calculating eGFR.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
   
   
@@ -191,215 +184,214 @@ const EGFRCalculator = () => {
   
 
   
-const handlePatientRegister = async () => {
-  try {
-      console.log("Register button clicked!");
-      console.log("Register Source:", registerSource);
-      console.log("Saved Patient Data:", savedPatientData);
+  const handlePatientRegister = async () => {
+    try {
+        console.log("Register button clicked!");
+        console.log("Register Source:", registerSource);
+        console.log("Saved Patient Data:", savedPatientData);
 
-      if (!nhsNumber || !/^\d{10}$/.test(nhsNumber)) {
-          alert("NHS Number must be exactly 10 digits and contain only numbers!");
-          return;
-      }
+        if (!nhsNumber || !/^\d{10}$/.test(nhsNumber)) {
+            alert("NHS Number must be exactly 10 digits and contain only numbers!");
+            return;
+        }
 
-      if (!password || password.length < 6) {
-          alert("Password must be at least 6 characters!");
-          return;
-      }
+        if (!password || password.length < 6) {
+            alert("Password must be at least 6 characters!");
+            return;
+        }
 
-      // Convert NHS Number into a valid Firebase email format for the authenticator
-      const nhsEmail = `${nhsNumber}@nhsuser.com`;
+        // Convert NHS Number into a valid Firebase email format for the authenticator
+        const nhsEmail = `${nhsNumber}@nhsuser.com`;
 
-      // Create User in Firebase Authentication
-      const userCredential = await createUserWithEmailAndPassword(auth, nhsEmail, password);
-      const userId = userCredential.user.uid;
+        // Create User in Firebase Authentication
+        const userCredential = await createUserWithEmailAndPassword(auth, nhsEmail, password);
+        const userId = userCredential.user.uid;
 
-      // Stors the  NHS number and patient data in Firestore
-      const patientData = {
-          nhsNumber,
-          age: registerSource === "rememberMe" && savedPatientData ? savedPatientData.age : null,
-          gender: registerSource === "rememberMe" && savedPatientData ? savedPatientData.gender : null,
-          ethnicity: registerSource === "rememberMe" && savedPatientData ? savedPatientData.ethnicity : null,
-          creatinine: registerSource === "rememberMe" && savedPatientData ? savedPatientData.creatinine : null,
-          unit: registerSource === "rememberMe" && savedPatientData ? savedPatientData.unit : creatinineUnit,
-          timestamp: new Date(),
-      };
+        // Stors the  NHS number and patient data in Firestore
+        const patientData = {
+            nhsNumber,
+            age: registerSource === "rememberMe" && savedPatientData ? savedPatientData.age : null,
+            gender: registerSource === "rememberMe" && savedPatientData ? savedPatientData.gender : null,
+            ethnicity: registerSource === "rememberMe" && savedPatientData ? savedPatientData.ethnicity : null,
+            creatinine: registerSource === "rememberMe" && savedPatientData ? savedPatientData.creatinine : null,
+            unit: registerSource === "rememberMe" && savedPatientData ? savedPatientData.unit : creatinineUnit,
+            timestamp: new Date(),
+        };
 
-      // Save Patient Data in Firestore using NHS Number
+        // Save Patient Data in Firestore using NHS Number
 
-      await setDoc(doc(db, "patients", nhsNumber), patientData);
+        await setDoc(doc(db, "patients", nhsNumber), patientData);
 
-      // Set the user as logged in so that the Logout button is shown
-      setIsLoggedIn(true);
-      setCurrentNhsNumber(nhsNumber);
-
-
-      // Reset state to show the calculator view (with logout) instead of registration
-      setIsRegistering(false);
-      setRegisterSource(null);
-      setSavedPatientData(null);
-      setNhsNumber("");
-      setPassword("");
-
-      alert("Registration successful!");
-
-  } catch (error) {
-      console.error("Error registering:", error.message);
-      alert("Error registering: " + error.message);
-  }
-};
+        // Set the user as logged in so that the Logout button is shown
+        setIsLoggedIn(true);
+        setCurrentNhsNumber(nhsNumber);
 
 
+        // Reset state to show the calculator view (with logout) instead of registration
+        setIsRegistering(false);
+        setRegisterSource(null);
+        setSavedPatientData(null);
+        setNhsNumber("");
+        setPassword("");
 
-const handlePatientLogin = async () => {
-  try {
-      console.log("Login button clicked!");
+        alert("Registration successful!");
 
-      if (!nhsNumber || !/^\d{10}$/.test(nhsNumber)) {
-          alert("NHS Number must be exactly 10 digits and contain only numbers!");
-          return;
-      }
-      if (!password || password.length < 6) {
-          alert("Password must be at least 6 characters!");
-          return;
-      }
+    } catch (error) {
+        console.error("Error registering:", error.message);
+        alert("Error registering: " + error.message);
+    }
+  };
 
-      const nhsEmail = `${nhsNumber}@nhsuser.com`;
 
-      await signInWithEmailAndPassword(auth, nhsEmail, password);
-      setIsLoggedIn(true);
-      setRole("patient");
-      setCurrentNhsNumber(nhsNumber);
 
-      // These lines will send the user back to the calculator view
-      setIsRegistering(false);
-      setRegisterSource(null);
+  const handlePatientLogin = async () => {
+    try {
+        console.log("Login button clicked!");
 
-      const fetchPatientData = async (nhsNum) => {
-        try {
-          const docRef = doc(db, "patients", nhsNum);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const patientData = docSnap.data();
-            // Use setValue to prefill your form fields:
-            setValue("age", patientData.age);
-            setValue("gender", patientData.gender);
-            setValue("ethnicity", patientData.ethnicity);
-            setValue("creatinine", patientData.creatinine);
-            setCreatinineUnit(patientData.unit);
+        if (!nhsNumber || !/^\d{10}$/.test(nhsNumber)) {
+            alert("NHS Number must be exactly 10 digits and contain only numbers!");
+            return;
+        }
+        if (!password || password.length < 6) {
+            alert("Password must be at least 6 characters!");
+            return;
+        }
+
+        const nhsEmail = `${nhsNumber}@nhsuser.com`;
+
+        await signInWithEmailAndPassword(auth, nhsEmail, password);
+        setIsLoggedIn(true);
+        setRole("patient");
+        setCurrentNhsNumber(nhsNumber);
+
+        // These lines will send the user back to the calculator view
+        setIsRegistering(false);
+        setRegisterSource(null);
+
+        const fetchPatientData = async (nhsNum) => {
+          try {
+            const docRef = doc(db, "patients", nhsNum);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+              const patientData = docSnap.data();
+              // Use setValue to prefill your form fields:
+              setValue("age", patientData.age);
+              setValue("gender", patientData.gender);
+              setValue("ethnicity", patientData.ethnicity);
+              setValue("creatinine", patientData.creatinine);
+              setCreatinineUnit(patientData.unit);
+            }
+          }
+          catch (error) {
+            console.error("Error sending data", error.message);
+            setLoginError("Error sending data to database. Please try again.");
           }
         }
-        catch (error) {
-          console.error("Error sending data", error.message);
-          setLoginError("Error sending data to database. Please try again.");
+        fetchPatientData(nhsNumber);
+        console.log("Successfully logged in as:", nhsNumber);
+        alert("🎉 Login successful!");
+        const login = await getIP();
+        const loginTime = new Date().toJSON();
+        try {
+          await setDoc(doc(db, "attemptlog", `pat_${nhsNumber}_${loginTime}`), {
+            type: "patient",
+            id: nhsNumber || "Unknown",
+            timestamp: serverTimestamp(),
+            ip: login,
+            status: "success"
+          });
+          console.log("Successful login recorded.");
+        } catch (error) {
+          console.error("Error logging attempt:", error.message);
         }
-      }
-      fetchPatientData(nhsNumber);
-      console.log("Successfully logged in as:", nhsNumber);
-      alert("🎉 Login successful!");
-      const login = await getIP();
-      const loginTime = new Date().toJSON();
-      try {
-        await setDoc(doc(db, "attemptlog", `pat_${nhsNumber}_${loginTime}`), {
-          type: "patient",
-          id: nhsNumber || "Unknown",
-          timestamp: serverTimestamp(),
-          ip: login,
-          status: "success"
-        });
-        console.log("Successful login recorded.");
-      } catch (error) {
-        console.error("Error logging attempt:", error.message);
-      }
 
-      
-  } catch (error) {
-      console.error("Login error:", error.message);
-      setLoginError("Invalid credentials. Please try again.");
-      const offence = await getIP();
-      const offenceTime = new Date().toJSON();
-      try {
-        await setDoc(doc(db, "attemptlog", `FAIL_pat_${nhsNumber}_${offenceTime}`), {
-          type: "patient",
-          id: nhsNumber || "Unknown",
-          timestamp: serverTimestamp(),
-          ip: offence,
-          status: "failed"
-        });
-        console.log("Suspicious login attempt recorded.");
-      } catch (error) {
-        console.error("Error logging attempt:", error.message);
-      }
-  }
-};
+        
+    } catch (error) {
+        console.error("Login error:", error.message);
+        setLoginError("Invalid credentials. Please try again.");
+        const offence = await getIP();
+        const offenceTime = new Date().toJSON();
+        try {
+          await setDoc(doc(db, "attemptlog", `FAIL_pat_${nhsNumber}_${offenceTime}`), {
+            type: "patient",
+            id: nhsNumber || "Unknown",
+            timestamp: serverTimestamp(),
+            ip: offence,
+            status: "failed"
+          });
+          console.log("Suspicious login attempt recorded.");
+        } catch (error) {
+          console.error("Error logging attempt:", error.message);
+        }
+    }
+  };
 
 
   
 
-function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
-  let creatinineMgDl = parseFloat(creatinine);
-  if (unit === "micromol/L") {
-    creatinineMgDl = creatinineMgDl / 88.4;
+  function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
+    // Convert inputs to numbers
+    const ageNum = Number(age);
+    let creatinineValue = Number(creatinine);
+
+    // Validate age
+    if (!Number.isFinite(ageNum) || ageNum < 18 || ageNum > 120) {
+      throw new Error("Age must be between 18 and 120.");
+    }
+
+    // Validate creatinine
+    if (!Number.isFinite(creatinineValue) || creatinineValue <= 0) {
+      throw new Error("Invalid creatinine value.");
+    }
+
+    // Validate gender
+    const sex = String(gender).toLowerCase();
+
+    if (sex !== "male" && sex !== "female") {
+      throw new Error("Please select a valid gender.");
+    }
+
+    // Convert µmol/L to mg/dL
+    const normalizedUnit = String(unit).toLowerCase().replace(/\s/g, "");
+
+    if (
+      normalizedUnit === "micromol/l" ||
+      normalizedUnit === "µmol/l" ||
+      normalizedUnit === "μmol/l" ||
+      normalizedUnit === "umol/l"
+    ) {
+      creatinineValue = creatinineValue / 88.4;
+    } else if (normalizedUnit !== "mg/dl") {
+      throw new Error("Unsupported creatinine unit.");
+    }
+
+    // CKD-EPI 2009 without ethnicity adjustment
+    const isFemale = sex === "female";
+
+    const kappa = isFemale ? 0.7 : 0.9;
+    const alpha = isFemale ? -0.329 : -0.411;
+
+    const scrRatio = creatinineValue / kappa;
+
+    const egfr =
+      141 *
+      Math.pow(Math.min(scrRatio, 1), alpha) *
+      Math.pow(Math.max(scrRatio, 1), -1.209) *
+      Math.pow(0.993, ageNum) *
+      (isFemale ? 1.018 : 1);
+
+    return Number(egfr.toFixed(2));
+
   }
-
-
-  if (isNaN(creatinineMgDl) || creatinineMgDl <= 0) {
-    return "Invalid";
-  }
-
-  let egfr = 186
-    * Math.pow(creatinineMgDl, -1.154)
-    * Math.pow(age, -0.203);
-
-  if (gender.toLowerCase() === "female") {
-    egfr *= 0.742;
-  }
-
-  if (ethnicity.toLowerCase() === "black") {
-    egfr *= 1.210;
-  }
-
-  return egfr.toFixed(2);
-}
-
 
   const getCKDStage = (egfr) => {
-    if (egfr >= 90) return '1';
-    if (egfr >= 60) return '2';
-    if (egfr >= 30) return '3';
-    if (egfr >= 15) return '4';
-    return '5';
+    if (egfr >= 90) return "G1";
+    if (egfr >= 60) return "G2";
+    if (egfr >= 45) return "G3a";
+    if (egfr >= 30) return "G3b";
+    if (egfr >= 15) return "G4";
+    return "G5";
   };
-
-  const [showRememberMeButton, setShowRememberMeButton] = useState(false);
-  const onSubmit = (data) => {
-    setLoading(true);
-    try {
-        const egfr = calculateEGFR(
-            parseFloat(data.creatinine),
-            parseFloat(data.age),
-            data.gender,
-            data.ethnicity,
-            creatinineUnit
-        );
-
-        const stage = getCKDStage(egfr);
-
-        setCalculationResult({
-            egfr,
-            stage,
-            recommendations: getRecommendations(stage),
-        });
-
-        setShowRememberMeButton(true);
-
-        console.log("Unit Passed:", creatinineUnit);
-    } catch (err) {
-        setError('Error calculating eGFR. Please check your inputs.');
-    }
-    console.log("Selected Unit Before Calculation:", creatinineUnit);
-    setLoading(false);
-};
 
 
   const handleFileUpload = (event) => {
@@ -510,12 +502,14 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
 
   const getRecommendations = (stage) => {
     const recommendations = {
-      '1': 'Monitor kidney function annually. Maintain healthy lifestyle.',
-      '2': 'Monitor kidney function bi-annually. Control blood pressure.',
-      '3': 'Consult nephrologist. Monitor every 3-6 months.',
-      '4': 'Regular nephrologist visits. Prepare for possible kidney replacement.',
-      '5': 'Immediate medical attention required. Discuss treatment options.'
+      G1: "Normal or high eGFR. Check urine ACR and other markers of kidney damage.",
+      G2: "Mildly reduced eGFR. Check urine ACR and monitor kidney function.",
+      G3a: "Mild to moderately reduced eGFR. Review urine ACR and monitor kidney function.",
+      G3b: "Moderately to severely reduced eGFR. Clinical assessment and closer monitoring are recommended.",
+      G4: "Severely reduced eGFR. Specialist kidney care is recommended.",
+      G5: "Kidney failure range. Specialist assessment is recommended."
     };
+
     return recommendations[stage];
   };
 
@@ -555,7 +549,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
           color="text.secondary"
           sx={{ mb: 3 }}
         >
-          Calculate estimated Glomerular Filtration Rate (eGFR) using the MDRD equation
+          Calculate estimated Glomerular Filtration Rate (eGFR) using the CKD-EPI equation
         </Typography>
       </Paper>
 
@@ -644,7 +638,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
         <Box sx={{ textAlign: "center", mt: 3 }}>
           {patients.length > 1 && (
             <Grid container spacing={2} justifyContent="center" sx={{ mb: 2 }}>
-              <Grid item>
+              <Grid>
                 <Button
                   variant="contained"
                   color="success"
@@ -654,12 +648,12 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                   ← Previous Patient
                 </Button>
               </Grid>
-              <Grid item>
+              <Grid>
                 <Typography variant="body1" sx={{ display: "flex", alignItems: "center" }}>
                   Patient {currentPatientIndex + 1} of {patients.length}
                 </Typography>
               </Grid>
-              <Grid item>
+              <Grid>
                 <Button
                   variant="contained"
                   color="success"
@@ -674,7 +668,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
 
           <form onSubmit={handleSubmit(onSubmit)}>
             <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <Controller
                   name="age"
                   control={control}
@@ -689,7 +683,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                 />
               </Grid>
 
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <Controller
                   name="gender"
                   control={control}
@@ -706,7 +700,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                 />
               </Grid>
 
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <Controller
                   name="ethnicity"
                   control={control}
@@ -723,7 +717,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                 />
               </Grid>
 
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <Controller
                   name="creatinine"
                   control={control}
@@ -738,7 +732,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                 />
               </Grid>
 
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <FormControl fullWidth>
                   <InputLabel>Unit</InputLabel>
                   <Select value={creatinineUnit} onChange={(e) => setCreatinineUnit(e.target.value)}>
@@ -748,7 +742,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <Button
                   component="label"
                   variant="outlined"
@@ -764,7 +758,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                 </Button>
               </Grid>
 
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <Button type="submit" variant="contained" color="primary" fullWidth disabled={loading} startIcon={loading ? <CircularProgress size={20} /> : <CalculateIcon />} sx={{ height: 56, fontSize: "1.1rem" }}>
                   {loading ? "Calculating..." : "Calculate eGFR"}
                 </Button>
@@ -945,7 +939,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
     <form onSubmit={handleSubmit(onSubmitPediatric)}>
       <Grid container spacing={3}>
         {/* Age and Height Side by Side */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Controller
             name="age"
             control={control}
@@ -959,7 +953,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
             )}
           />
         </Grid>
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Controller
             name="height"
             control={control}
@@ -975,7 +969,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
         </Grid>
 
         {/* Gender and Serum Creatinine Side by Side */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Controller
             name="gender"
             control={control}
@@ -991,7 +985,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
             )}
           />
         </Grid>
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Controller
             name="creatinine"
             control={control}
@@ -1007,7 +1001,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
         </Grid>
 
         {/* Creatinine Unit */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Controller
             name="creatinineUnit"
             control={control}
@@ -1064,7 +1058,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
               <>
                 <form onSubmit={handleSubmit(onSubmit)}>
                   <Grid container spacing={3}>
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                       <Controller
                         name="age"
                         control={control}
@@ -1086,7 +1080,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                       />
                     </Grid>
 
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                       <Controller
                         name="gender"
                         control={control}
@@ -1103,7 +1097,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                       />
                     </Grid>
 
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                       <Controller
                         name="ethnicity"
                         control={control}
@@ -1120,7 +1114,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                       />
                     </Grid>
 
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                       <Controller
                         name="creatinine"
                         control={control}
@@ -1142,7 +1136,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                       />
                     </Grid>
 
-                    <Grid item xs={12} md={6} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Grid xs={12} md={6} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       {/* Unit Dropdown */}
                       <FormControl sx={{ flex: 1 }}>
                         <InputLabel>Unit</InputLabel>
@@ -1233,7 +1227,7 @@ function calculateEGFR(creatinine, age, gender, ethnicity, unit) {
                       )}
                     </Grid>
 
-                    <Grid item xs={12}>
+                    <Grid size={12}>
                       <Button
                         type="submit"
                         variant="contained"
